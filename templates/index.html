@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Smart Writer</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; display: flex; justify-content: center; padding-top: 40px; }
+        .container { width: 750px; }
+
+        .header { margin-bottom: 15px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+        h2 { color: #333; margin: 0; font-weight: 400; }
+        
+        /* THE EDITOR STACK */
+        .editor-wrapper {
+            position: relative; 
+            width: 100%; 
+            height: 500px;
+            background: white; 
+            border-radius: 8px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            overflow: hidden; /* Keeps borders clean */
+        }
+
+        /* BOTH LAYERS MUST HAVE IDENTICAL TEXT STYLES */
+        .shared-style {
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%;
+            padding: 25px; 
+            font-size: 18px; 
+            line-height: 28px; 
+            font-family: 'Courier New', monospace; /* Monospace is CRITICAL for alignment */
+            letter-spacing: normal;
+            word-spacing: normal;
+            white-space: pre-wrap; /* Wraps text exactly the same */
+            word-wrap: break-word;
+            box-sizing: border-box; /* Includes padding in width calculation */
+            border: none; 
+            resize: none; 
+            overflow: auto;
+        }
+
+        #ghost-layer { 
+            z-index: 1; 
+            color: transparent; 
+            background: transparent;
+            pointer-events: none; /* Lets clicks pass through to textarea */
+        }
+
+        /* The grey suggestion text */
+        .suggestion { color: #aaa; } 
+
+        #user-input { 
+            z-index: 2; 
+            color: #333; 
+            background: transparent; 
+            outline: none; 
+        }
+
+        .status { margin-top: 10px; color: #28a745; font-size: 14px; text-align: right; opacity: 0; transition: opacity 0.5s; font-weight: bold;}
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h2>✍️ Smart Writer <small style="font-size: 14px; color: #888;">(Auto-Learning + Punctuation)</small></h2>
+    </div>
+    
+    <div class="editor-wrapper">
+        <div id="ghost-layer" class="shared-style"></div>
+        <textarea id="user-input" class="shared-style" placeholder="Start typing..."></textarea>
+    </div>
+    <div id="status-msg" class="status">Saved & Learned!</div>
+</div>
+
+<script>
+    const input = document.getElementById('user-input');
+    const ghost = document.getElementById('ghost-layer');
+    const statusMsg = document.getElementById('status-msg');
+    
+    let currentSuggestion = "";
+    let suggestionType = "";
+
+    // 1. TYPING HANDLER
+    input.addEventListener('input', function() {
+        syncScroll();
+        // Clear ghost immediately to prevent visual glitches
+        ghost.innerHTML = escapeHtml(input.value);
+        currentSuggestion = "";
+        
+        clearTimeout(window.predictTimer);
+        window.predictTimer = setTimeout(getSuggestion, 100); // Faster response
+    });
+
+    async function getSuggestion() {
+        const text = input.value;
+        if (!text) return;
+        
+        const res = await fetch('/predict', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: text})
+        });
+        const data = await res.json();
+        
+        if (data.suggestion) {
+            currentSuggestion = data.suggestion;
+            suggestionType = data.type;
+            
+            // Render Ghost: User Text + Grey Suggestion
+            let html = escapeHtml(text) + `<span class="suggestion">${currentSuggestion}</span>`;
+            ghost.innerHTML = html;
+        }
+    }
+
+    // 2. KEY HANDLER
+    input.addEventListener('keydown', function(e) {
+        // TAB: Accept
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            if (currentSuggestion) {
+                input.value += currentSuggestion;
+                
+                // Only add space if the next char is NOT punctuation
+                // (This is handled in Python now, but safety check here is good)
+                if (suggestionType === 'completion') input.value += " ";
+                
+                ghost.innerHTML = escapeHtml(input.value);
+                currentSuggestion = "";
+                getSuggestion(); 
+            }
+        }
+
+        // ENTER: Train
+        if (e.key === 'Enter') {
+            const fullText = input.value;
+            const lines = fullText.split('\n');
+            const recentLine = lines[lines.length - 1]; 
+            
+            if (recentLine.trim().length > 2) {
+                learnAndSave(recentLine);
+            }
+        }
+    });
+
+    // 3. AUTO-SAVE
+    async function learnAndSave(text) {
+        await fetch('/learn_new_sentence', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: text})
+        });
+        statusMsg.style.opacity = '1';
+        setTimeout(() => { statusMsg.style.opacity = '0'; }, 2000);
+    }
+
+    // SCROLL SYNC
+    input.addEventListener('scroll', syncScroll);
+    function syncScroll() { ghost.scrollTop = input.scrollTop; }
+    
+    function escapeHtml(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                   .replace(/"/g, "&quot;").replace(/'/g, "&#039;").replace(/\n/g, "<br>");
+    }
+</script>
+
+</body>
+</html>
