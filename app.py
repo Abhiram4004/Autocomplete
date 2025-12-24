@@ -170,3 +170,7 @@ def learn_new_sentence():
 
 if __name__ == '__main__':
     app.run(debug=True)
+    
+if __name__ == '__main__':
+    # '0.0.0.0' tells Flask to accept connections from any IP on the network
+    app.run(host='0.0.0.0', port=5000)
